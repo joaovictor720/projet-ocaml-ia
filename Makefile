@@ -1,0 +1,11 @@
+EXEC = test_dfa
+OCAMLC = ocamlfind ocamlc
+PKGS = -package ounit2 -linkpkg
+
+all: $(EXEC)
+
+$(EXEC): dfa.mli dfa.ml dfa_tests.ml
+        $(OCAMLC) $(PKGS) -o $(EXEC) dfa.mli dfa.ml dfa_tests.ml
+
+clean:
+        rm -f *.cmo *.cmi *.cmx *.o $(EXEC)
