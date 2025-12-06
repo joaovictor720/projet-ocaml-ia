@@ -77,6 +77,6 @@ let tests = "dfa tests" >::: [
         (Dfa.is_empty empty_dfa);
     );
 
-
+]
 let () =
   run_test_tt_main tests

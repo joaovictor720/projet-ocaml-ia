@@ -1,12 +1,12 @@
-module Dfa : sig
-
-  module Alphabet : sig
+module Dfa = struct
+  
+  module Alphabet = struct
     type t = char list
   end
 
-  module Word : sig
+  module Word = struct
     type t = char list
-    val epsilon : t
+    let epsilon = []
   end
 
   (** Deterministic Finite Automaton *)
@@ -20,6 +20,22 @@ module Dfa : sig
 
 
   (** Emptiness check *)
-  val is_empty : 's t -> bool
+  let is_empty dfa =
+    let rec loop visited to_visit =
+      match to_visit with
+      | [] -> true
+      | head::tail -> 
+        if List.mem head visited then
+          loop visited tail
+        else if List.mem head dfa.finals then
+          false
+        else 
+          let neighbors = List.map (fun c -> dfa.delta head c) dfa.alpha in
+          loop (head::visited) (neighbors @ tail)
+    in
+    loop [] [dfa.start]
 
+  
 end
+
+
