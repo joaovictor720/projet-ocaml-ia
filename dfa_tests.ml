@@ -1,0 +1,82 @@
+open OUnit2
+open Dfa
+
+let dfs (dfa : 's Dfa.t) : 's list =
+    let rec explore visited = function
+      | [] -> List.rev visited
+      | q :: rest ->
+         if List.mem q visited then
+           explore visited rest
+         else
+           let succs = List.map (dfa.delta q) dfa.alpha in
+           explore (q :: visited) (succs @ rest)
+    in
+    explore [] [dfa.start]
+
+let alphabet = ['a'; 'b']
+
+(* empty language *)
+let dfa_epsilon : int Dfa.t =
+  let delta _ c =
+    match c with
+    | 'a' | 'b' -> 1
+    | _ -> failwith "bad symbol"
+  in
+  {
+    alpha = alphabet;
+    states = [0; 1];
+    start = 0;
+    finals = [0];
+    delta;
+  }
+
+(* (aa)*[a|b]* *)
+let dfa_even_as: int Dfa.t =
+  let delta st c =
+    match st, c with
+    | 0, 'a' -> 1
+    | 1, 'a' -> 0
+    | (_ , 'b') -> st
+    | _ -> failwith "bad symbol"
+  in
+  {
+    alpha = alphabet;
+    states = [0; 1];
+    start = 0;
+    finals = [0];
+    delta;
+  }
+
+  (* [a|b]*b *)
+let dfa_ends_in_b: int Dfa.t =
+  let delta _ c =
+    match c with
+    | 'b' -> 1
+    | 'a' -> 0
+    | _ -> failwith "bad symbol"
+  in
+  {
+    alpha = alphabet;
+    states = [0; 1];
+    start = 0;
+    finals = [1];
+    delta;
+  }
+
+let tests = "dfa tests" >::: [
+
+
+  "is_empty" >:: (fun _ ->
+      assert_bool "epsilon-only DFA is not empty" 
+        (not (Dfa.is_empty dfa_epsilon));
+
+      let empty_dfa =
+        { dfa_epsilon with finals = [] }
+      in
+      assert_bool "dfa with no finals is empty"
+        (Dfa.is_empty empty_dfa);
+    );
+
+
+let () =
+  run_test_tt_main tests
