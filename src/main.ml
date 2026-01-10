@@ -98,18 +98,35 @@ let run_learning_scenario cfg (tag, name, oracle) =
     let start_time = Sys.time () in
     
     (* Execute L* Algorithm *)
-    let (dfa, _) = LStar.learn alphabet spy_oracle in
+    (* UPDATED: Capture debug_steps (the HTML list) *)
+    let (dfa, debug_steps) = LStar.learn alphabet spy_oracle in
     let duration = Sys.time () -. start_time in
 
-    (* Export Visuals *)
+    (* 1. Export HTML Debug Report *)
+    let html_filename = Printf.sprintf "%s/%s_debug.html" cfg.results_dir tag in
+    let oc_html = open_out html_filename in
+    Printf.fprintf oc_html "<html><head><title>%s Debug Trace</title></head><body>" name;
+    Printf.fprintf oc_html "<h1>L* Algorithm Trace: %s</h1>\n" name;
+    Printf.fprintf oc_html "<p><strong>Total Queries:</strong> %d | <strong>Time:</strong> %.4fs</p><hr/>\n" !query_count duration;
+    
+    (* Iterate and print each step *)
+    List.iteri (fun i html -> 
+      Printf.fprintf oc_html "<h3>Step %d</h3>\n" (i + 1);
+      Printf.fprintf oc_html "<div style='margin-bottom: 30px;'>%s</div><hr/>\n" html
+    ) debug_steps;
+    
+    Printf.fprintf oc_html "</body></html>";
+    close_out oc_html;
+    Printf.printf "   [+] Debug trace saved to: %s\n" html_filename;
+
+    (* 2. Export Visuals (DOT) *)
     let dot_filename = Printf.sprintf "%s/%s.dot" cfg.results_dir tag in
     export_dot dfa dot_filename;
 
-    (* Verification Phase *)
+    (* 3. Verification Phase *)
     let errors = List.fold_left (fun acc w ->
       let w_chars = string_to_char_list w in
       let res_dfa = Dfa.membership dfa w_chars in
-      (* Note: In interactive mode, this will ask the user again *)
       let res_oracle = oracle w in
       if res_dfa <> res_oracle then (
         Printf.printf "   [ERROR] Discrepancy on '%s'\n" w;
