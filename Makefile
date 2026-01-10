@@ -11,21 +11,15 @@ RSLT_DIR = results
 
 # --- Compiler & Flags ---
 OCAMLC = ocamlc
-# Include obj directory for dependencies and enable debug info
 FLAGS  = -I $(OBJ_DIR) -g
 
 # ==========================================
 #  FILES & OBJECTS
 # ==========================================
 
-# Library modules (order matters for linking if side-effects exist, but usually safe here)
-# Added 'targets' here so it gets compiled into LIB_OBJS
 LIB_MODULES = dfa observationTable lStar targets
+LIB_OBJS    = $(addprefix $(OBJ_DIR)/, $(addsuffix .cmo, $(LIB_MODULES)))
 
-# Construct full paths for object files (e.g., obj/dfa.cmo)
-LIB_OBJS = $(addprefix $(OBJ_DIR)/, $(addsuffix .cmo, $(LIB_MODULES)))
-
-# Executable paths
 TARGET      = $(BIN_DIR)/lstar
 TEST_TARGET = $(BIN_DIR)/tests_run
 
@@ -33,77 +27,61 @@ TEST_TARGET = $(BIN_DIR)/tests_run
 #  MAIN RULES
 # ==========================================
 
-.PHONY: all clean directories test run
+.PHONY: all clean test run interactive run-only help
 
-all: directories $(TARGET) $(TEST_TARGET)
-
-# Create output directories if they don't exist
-directories:
-	mkdir -p $(BIN_DIR) $(OBJ_DIR)
+all: $(TARGET) $(TEST_TARGET)
 
 # --- Linking ---
 
-# Main Application
 $(TARGET): $(LIB_OBJS) $(OBJ_DIR)/main.cmo
+	@mkdir -p $(BIN_DIR)
 	$(OCAMLC) $(FLAGS) -o $@ $^
 
-# Test Suite
 $(TEST_TARGET): $(LIB_OBJS) $(OBJ_DIR)/tests.cmo
+	@mkdir -p $(BIN_DIR)
 	$(OCAMLC) $(FLAGS) -o $@ $^
 
 # ==========================================
 #  COMPILATION RULES
 # ==========================================
+# FIX: We ensure the OBJ_DIR exists inside the rule to avoid race conditions
 
-# 1. Interfaces (.mli -> .cmi)
 $(OBJ_DIR)/%.cmi: $(SRC_DIR)/%.mli
+	@mkdir -p $(OBJ_DIR)
 	$(OCAMLC) $(FLAGS) -c -o $@ $<
 
-# 2. Source Implementations (.ml -> .cmo)
 $(OBJ_DIR)/%.cmo: $(SRC_DIR)/%.ml
+	@mkdir -p $(OBJ_DIR)
 	$(OCAMLC) $(FLAGS) -c -o $@ $<
 
-# 3. Test Implementations (.ml -> .cmo)
 $(OBJ_DIR)/%.cmo: $(TEST_DIR)/%.ml
+	@mkdir -p $(OBJ_DIR)
 	$(OCAMLC) $(FLAGS) -c -o $@ $<
 
 # ==========================================
 #  DEPENDENCIES
 # ==========================================
-# Explicit compilation order for dependencies
 
-# Core Logic
 $(OBJ_DIR)/dfa.cmo: $(OBJ_DIR)/dfa.cmi
 $(OBJ_DIR)/observationTable.cmo: $(OBJ_DIR)/observationTable.cmi $(OBJ_DIR)/dfa.cmo
 $(OBJ_DIR)/lStar.cmo: $(OBJ_DIR)/lStar.cmi $(OBJ_DIR)/observationTable.cmo $(OBJ_DIR)/dfa.cmo
-
-# Targets (Oracles) - Assuming it has no dependencies on other modules
-$(OBJ_DIR)/targets.cmo: $(SRC_DIR)/targets.ml
-
-# Main Entry Point
-# Depends on all library modules including targets
+$(OBJ_DIR)/targets.cmo: $(OBJ_DIR)/targets.cmi $(SRC_DIR)/targets.ml
 $(OBJ_DIR)/main.cmo: $(OBJ_DIR)/lStar.cmo $(OBJ_DIR)/dfa.cmo $(OBJ_DIR)/targets.cmo
-
-# Tests
 $(OBJ_DIR)/tests.cmo: $(OBJ_DIR)/dfa.cmo
 
 # ==========================================
-#  UTILITY COMMANDS
+#  COMMANDS & UTILITIES
 # ==========================================
 
 clean:
 	rm -rf $(OBJ_DIR) $(BIN_DIR) $(RSLT_DIR)
 
-# Compile and run the test suite
 test: $(TEST_TARGET)
-	@echo "--- Running Tests ---"
+	@echo "--- Running Test Suite ---"
 	@./$(TEST_TARGET)
 
-# Compile, run main, and generate visualizations
-run: $(TARGET)
-	@mkdir -p $(RSLT_DIR)
-	@echo "--- Running Akleenator ---"
-	@./$(TARGET) $(ARGS)
+# Helper function to generate PNGs from DOT files
+define generate_graphs
 	@echo "--- Generating Graphviz Images ---"
 	@for file in $(RSLT_DIR)/*.dot; do \
 		if [ -e "$$file" ]; then \
@@ -111,4 +89,45 @@ run: $(TARGET)
 			dot -Tpng "$$file" -o "$${file%.dot}.png"; \
 		fi; \
 	done
-	@echo "--- Done. Results in $(RSLT_DIR)/ ---"
+endef
+
+# 1. Run Everything (Automated)
+run: $(TARGET)
+	@mkdir -p $(RSLT_DIR)
+	@echo "--- Running All Scenarios ---"
+	@./$(TARGET)
+	$(generate_graphs)
+	@echo "--- Done. See $(RSLT_DIR)/ ---"
+
+# 2. Run Interactive Mode
+interactive: $(TARGET)
+	@mkdir -p $(RSLT_DIR)
+	@./$(TARGET) -i
+	$(generate_graphs)
+
+# 3. Run Specific Target (Usage: make run-only T=tag_name)
+run-only: $(TARGET)
+	@mkdir -p $(RSLT_DIR)
+	@if [ -z "$(T)" ]; then \
+		echo "[!] Error: Please specify a target using T=<name>"; \
+		echo "    Example: make run-only T=even_ones"; \
+		exit 1; \
+	fi
+	@./$(TARGET) -t $(T)
+	$(generate_graphs)
+
+# 4. List Available Targets
+list: $(TARGET)
+	@./$(TARGET) -list
+
+# 5. Help Menu
+help:
+	@echo "Akleenator Build System"
+	@echo "======================="
+	@echo "  make              : Compile the project."
+	@echo "  make run          : Run all automated scenarios."
+	@echo "  make run-only T=x : Run specific scenario 'x' (e.g., T=even_ones)."
+	@echo "  make interactive  : Run as Human Oracle (manual input)."
+	@echo "  make list         : List all available scenarios."
+	@echo "  make test         : Run unit tests."
+	@echo "  make clean        : Remove build artifacts."

@@ -1,5 +1,8 @@
+(* Type definition to match interface *)
+type oracle_fn = string -> bool
+
 (* ========================================== *)
-(* TARGET ORACLES                             *)
+(* AUTOMATED ORACLES                          *)
 (* ========================================== *)
 
 let oracle_even_ones w =
@@ -18,7 +21,23 @@ let oracle_double_one w =
     else aux (i+1)
   in aux 0
 
-let oracles = [
+(* ========================================== *)
+(* INTERACTIVE ORACLE                         *)
+(* ========================================== *)
+
+let oracle_human w =
+  Printf.printf "\n[?] Oracle Query: Does the word '%s' belong to the language? (y/n): " w;
+  flush stdout; 
+  match read_line () with
+  | "y" | "Y" | "yes" -> true
+  | _ -> false
+
+(* ========================================== *)
+(* EXPORTED LIST                              *)
+(* ========================================== *)
+
+(* Only automated targets are included here *)
+let all = [
   ("even_ones", "Even number of 1s", oracle_even_ones);
   ("ends_zero", "Ends with 0", oracle_end_zero);
   ("double_one", "Double 1 (consecutive)", oracle_double_one);
