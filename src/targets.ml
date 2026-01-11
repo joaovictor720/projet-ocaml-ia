@@ -21,6 +21,59 @@ let oracle_double_one w =
     else aux (i+1)
   in aux 0
 
+let oracle_div5 w =
+  if w = "" then false (* Empty string is not a number, reject *)
+  else
+    let rec calc_mod remainder i =
+      if i >= String.length w then remainder
+      else
+        let bit = if w.[i] = '1' then 1 else 0 in
+        let new_remainder = ((remainder * 2) + bit) mod 5 in
+        calc_mod new_remainder (i + 1)
+    in
+    (* Accepts if final remainder is 0 *)
+    calc_mod 0 0 = 0
+
+let oracle_div25 w =
+  if w = "" then false
+  else
+    let rec calc_mod remainder i =
+      if i >= String.length w then remainder
+      else
+        let bit = if w.[i] = '1' then 1 else 0 in
+        (* (Resto * 2 + bit) % 25 *)
+        let new_remainder = ((remainder * 2) + bit) mod 25 in
+        calc_mod new_remainder (i + 1)
+    in
+    calc_mod 0 0 = 0
+
+let oracle_div7 w =
+  if w = "" then false
+  else
+    let rec calc_mod remainder i =
+      if i >= String.length w then remainder
+      else
+        let bit = if w.[i] = '1' then 1 else 0 in
+        let new_remainder = ((remainder * 2) + bit) mod 7 in
+        calc_mod new_remainder (i + 1)
+    in
+    calc_mod 0 0 = 0
+
+let oracle_bit4 w =
+  let k = 4 in
+  let len = String.length w in
+  if len < k then false
+  else w.[len - k] = '1'
+
+let oracle_bit6 w =
+  let k = 6 in
+  let len = String.length w in
+  if len < k then false
+  else w.[len - k] = '1'
+
+let oracle_len10 w =
+  String.length w >= 10
+
 (* ========================================== *)
 (* INTERACTIVE ORACLE                         *)
 (* ========================================== *)
@@ -41,4 +94,10 @@ let all = [
   ("even_ones", "Even number of 1s", oracle_even_ones);
   ("ends_zero", "Ends with 0", oracle_end_zero);
   ("double_one", "Double 1 (consecutive)", oracle_double_one);
+  ("div_by_5",   "Binary Divisible by 5", oracle_div5);
+  ("div_by_25",  "Binary Divisible by 25 (Hard)", oracle_div25); 
+  ("div_by_7",   "Divisible by 7",    oracle_div7);
+  ("bit_4",      "4th bit is 1 (16 states)", oracle_bit4);
+  ("bit_6",      "6th bit is 1 (64 states)", oracle_bit6);
+  ("len_10", "Length >= 10", oracle_len10);
 ]

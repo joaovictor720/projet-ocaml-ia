@@ -12,6 +12,8 @@ type config = {
   target : string option;
   list_mode : bool;
   interactive : bool;
+  algo : LStar.algorithm;
+  use_cache : bool;
   results_dir : string;
 }
 
@@ -25,69 +27,84 @@ let ensure_dir dir =
 let string_to_char_list s =
   List.of_seq (String.to_seq s)
 
-(* ========================================== *)
-(* GRAPHVIZ EXPORT                            *)
-(* ========================================== *)
-
 let export_dot dfa filename =
   let oc = open_out filename in
-  Printf.fprintf oc "digraph DFA {\n";
-  Printf.fprintf oc "  rankdir=LR;\n";
-  Printf.fprintf oc "  node [shape = circle, style=filled, color=black, fillcolor=white];\n";
-  
-  Printf.fprintf oc "  node [shape = doublecircle]; %s;\n" 
-    (String.concat " " (List.map string_of_int dfa.finals));
-    
-  Printf.fprintf oc "  node [shape = circle];\n";
-  Printf.fprintf oc "  secret_node [style=invis, shape=point];\n";
-  Printf.fprintf oc "  secret_node -> %d [label=\"start\"];\n" dfa.start;
-  
+  Printf.fprintf oc "digraph DFA { rankdir=LR; node [shape = circle];\n";
+(* CORREÇÃO: Verifica se a lista não está vazia antes de escrever *)
+  if dfa.finals <> [] then
+    Printf.fprintf oc "  node [shape = doublecircle]; %s;\n" (String.concat " " (List.map string_of_int dfa.finals));  Printf.fprintf oc "  node [shape = circle];\n"; (* Reset style *)
+  Printf.fprintf oc "  secret_node [style=invis, shape=point]; secret_node -> %d [label=\"start\"];\n" dfa.start;
   List.iter (fun q ->
-    let transitions = 
-      List.fold_left (fun acc a ->
+    let transitions = List.fold_left (fun acc a ->
         let target = dfa.delta q a in
-        let existing_chars = try List.assoc target acc with Not_found -> [] in
-        (target, a :: existing_chars) :: (List.remove_assoc target acc)
+        let existing = try List.assoc target acc with Not_found -> [] in
+        (target, a :: existing) :: (List.remove_assoc target acc)
       ) [] dfa.alpha 
     in
-    List.iter (fun (target, char_list) ->
-      let sorted_chars = List.sort Char.compare char_list in
-      let label = String.concat ", " (List.map (String.make 1) sorted_chars) in
-      Printf.fprintf oc "  %d -> %d [label=\"%s\"];\n" q target label
+    List.iter (fun (t, chars) ->
+      let lbl = String.concat ", " (List.map (String.make 1) (List.sort Char.compare chars)) in
+      Printf.fprintf oc "  %d -> %d [label=\"%s\"];\n" q t lbl
     ) transitions
   ) dfa.states;
-  
-  Printf.fprintf oc "}\n";
-  close_out oc;
-  Printf.printf "   [+] DFA exported to: %s\n" filename
+  Printf.fprintf oc "}\n"; close_out oc
 
 (* ========================================== *)
-(* ORACLE WRAPPER                             *)
+(* ORACLE WRAPPERS                            *)
 (* ========================================== *)
 
 let make_logged_oracle oracle log_file =
   let oc = open_out log_file in
   let counter = ref 0 in
-  
-  let logged_wrapper w =
+  let wrapper w =
     incr counter;
     let res = oracle w in
     Printf.fprintf oc "[Query %d] Word: '%s' -> %b\n" !counter w res;
     res
   in
-  (logged_wrapper, counter, oc)
+  (wrapper, counter, oc)
+
+let make_cached_oracle oracle log_file =
+  let oc = open_out log_file in
+  let counter = ref 0 in
+  let cache = Hashtbl.create 2048 in
+  
+  let wrapper w =
+    try
+      Hashtbl.find cache w
+    with Not_found ->
+      incr counter;
+      let res = oracle w in
+      Printf.fprintf oc "[Query %d] Word: '%s' -> %b\n" !counter w res;
+      Hashtbl.add cache w res;
+      res
+  in
+  (wrapper, counter, oc)
 
 (* ========================================== *)
 (* CORE LOGIC                                 *)
 (* ========================================== *)
 
 let run_learning_scenario cfg (tag, name, oracle) =
-  Printf.printf ">> Learning Scenario: %s\n" name;
+  (* 1. Determine Folder Name based on CONFIGURATION only *)
+  let algo_suffix = match cfg.algo with LStar.Angluin -> "angluin" | LStar.RivestSchapire -> "rs" in
+  let cache_suffix = if cfg.use_cache then "cached" else "raw" in
   
-  let log_filename = Printf.sprintf "%s/%s_queries.log" cfg.results_dir tag in
-  let (spy_oracle, query_count, log_channel) = make_logged_oracle oracle log_filename in
+  (* Example folder: results/rs_cached/ *)
+  let config_dir_name = Printf.sprintf "%s_%s" algo_suffix cache_suffix in
+  let run_dir = Filename.concat cfg.results_dir config_dir_name in
+  ensure_dir run_dir;
+
+  Printf.printf ">> Learning: %s [Algo: %s | Cache: %b]\n" name algo_suffix cfg.use_cache;
   
-  (* Standard test set for verification *)
+  (* 2. Determine Filenames based on TARGET tag *)
+  (* Example file: results/rs_cached/even_ones_queries.log *)
+  let log_filename = Filename.concat run_dir (Printf.sprintf "%s_queries.log" tag) in
+  
+  let (spy_oracle, query_count, log_channel) = 
+    if cfg.use_cache then make_cached_oracle oracle log_filename
+    else make_logged_oracle oracle log_filename
+  in
+  
   let test_words = [
     ""; "0"; "1"; "00"; "01"; "10"; "11"; "1100"; "111"; "10101"; 
     "1111"; "1001"; "0101"; "10110"; "11101"; "11111"; "00000"
@@ -97,50 +114,35 @@ let run_learning_scenario cfg (tag, name, oracle) =
     let alphabet = ['0'; '1'] in
     let start_time = Sys.time () in
     
-    (* Execute L* Algorithm *)
-    (* UPDATED: Capture debug_steps (the HTML list) *)
-    let (dfa, debug_steps) = LStar.learn alphabet spy_oracle in
+    let (dfa, debug_steps) = LStar.learn cfg.algo alphabet spy_oracle in
     let duration = Sys.time () -. start_time in
 
-    (* 1. Export HTML Debug Report *)
-    let html_filename = Printf.sprintf "%s/%s_debug.html" cfg.results_dir tag in
+    (* HTML Generator *)
+    let html_filename = Filename.concat run_dir (Printf.sprintf "%s_debug.html" tag) in
     let oc_html = open_out html_filename in
-    Printf.fprintf oc_html "<html><head><title>%s Debug Trace</title></head><body>" name;
-    Printf.fprintf oc_html "<h1>L* Algorithm Trace: %s</h1>\n" name;
-    Printf.fprintf oc_html "<p><strong>Total Queries:</strong> %d | <strong>Time:</strong> %.4fs</p><hr/>\n" !query_count duration;
     
-    (* Iterate and print each step *)
-    List.iteri (fun i html -> 
-      Printf.fprintf oc_html "<h3>Step %d</h3>\n" (i + 1);
-      Printf.fprintf oc_html "<div style='margin-bottom: 30px;'>%s</div><hr/>\n" html
-    ) debug_steps;
+    Printf.fprintf oc_html "<html><head><title>%s Trace</title>
+    <style>body{font-family:sans-serif;background:#f4f4f9;padding:20px} .step{display:none;background:#fff;padding:20px;border-radius:8px} .active{display:block} table{border-collapse:collapse} td,th{border:1px solid #ccc;padding:5px}</style>
+    </head><body><h1>Trace: %s</h1>
+    <h3>Config: %s | %s</h3>
+    <p><strong>Queries:</strong> %d | <strong>Time:</strong> %.4fs</p>
+    <button onclick='mv(-1)'>Prev</button> <span id='lbl'>Step 1</span> <button onclick='mv(1)'>Next</button>" 
+    name name algo_suffix (if cfg.use_cache then "Cache ON" else "Cache OFF") !query_count duration;
+
+    List.iteri (fun i h -> Printf.fprintf oc_html "<div class='step' id='s%d'><h2>Step %d</h2>%s</div>" (i+1) (i+1) h) debug_steps;
     
-    Printf.fprintf oc_html "</body></html>";
+    Printf.fprintf oc_html "<script>let c=1,t=%d;function mv(d){c+=d;if(c<1)c=1;if(c>t)c=t;up()}function up(){document.querySelectorAll('.step').forEach(e=>e.classList.remove('active'));document.getElementById('s'+c).classList.add('active');document.getElementById('lbl').innerText='Step '+c}up()</script></body></html>" (List.length debug_steps);
     close_out oc_html;
-    Printf.printf "   [+] Debug trace saved to: %s\n" html_filename;
 
-    (* 2. Export Visuals (DOT) *)
-    let dot_filename = Printf.sprintf "%s/%s.dot" cfg.results_dir tag in
-    export_dot dfa dot_filename;
-
-    (* 3. Verification Phase *)
+    (* Export & Verify *)
+    export_dot dfa (Filename.concat run_dir (Printf.sprintf "%s.dot" tag));
+    
     let errors = List.fold_left (fun acc w ->
-      let w_chars = string_to_char_list w in
-      let res_dfa = Dfa.membership dfa w_chars in
-      let res_oracle = oracle w in
-      if res_dfa <> res_oracle then (
-        Printf.printf "   [ERROR] Discrepancy on '%s'\n" w;
-        acc + 1
-      ) else acc
+      if Dfa.membership dfa (string_to_char_list w) <> oracle w then acc + 1 else acc
     ) 0 test_words in
 
-    Printf.printf "   [i] Time: %.4fs | Queries: %d | States: %d\n" 
-      duration !query_count (List.length dfa.states);
-    
-    if errors = 0 then
-      Printf.printf "   [OK] Verification Passed.\n"
-    else
-      Printf.printf "   [FAIL] Verification Failed (%d errors).\n" errors;
+    Printf.printf "   [i] Time: %.4fs | Queries: %d | States: %d\n" duration !query_count (List.length dfa.states);
+    if errors > 0 then Printf.printf "   [FAIL] %d errors\n" errors else Printf.printf "   [OK] Verified\n";
     
     print_endline "-------------------------------------------";
     close_out log_channel
@@ -158,20 +160,31 @@ let parse_config () =
   let target_ref = ref "" in
   let list_ref = ref false in
   let interactive_ref = ref false in
+  let algo_ref = ref "rs" in
+  let no_cache_ref = ref false in
   
   let speclist = [
     ("-t", Arg.Set_string target_ref, "Run a specific scenario by tag");
     ("-list", Arg.Set list_ref, "List all available scenarios");
-    ("-i", Arg.Set interactive_ref, "Interactive Mode (Human Oracle)");
+    ("-i", Arg.Set interactive_ref, "Interactive Mode");
+    ("-algo", Arg.Set_string algo_ref, "angluin | rs");
+    ("-no-cache", Arg.Set no_cache_ref, "Disable memoization");
   ] in
   
-  let usage = "Usage: ./bin/lstar [-t <tag>] [-list] [-i]" in
+  let usage = "Usage: ./bin/lstar [-t <tag>] [-algo rs] [-no-cache]" in
   Arg.parse speclist (fun _ -> ()) usage;
+  
+  let algo = match String.lowercase_ascii !algo_ref with
+    | "angluin" -> LStar.Angluin
+    | _ -> LStar.RivestSchapire
+  in
   
   {
     target = if !target_ref = "" then None else Some !target_ref;
     list_mode = !list_ref;
     interactive = !interactive_ref;
+    algo = algo;
+    use_cache = not !no_cache_ref;
     results_dir = "results";
   }
 
@@ -182,49 +195,26 @@ let parse_config () =
 let () =
   let cfg = parse_config () in
 
-  (* 1. List Mode *)
   if cfg.list_mode then (
-    print_endline "\nAvailable Automated Scenarios:";
-    print_endline "-----------------------------";
-    List.iter (fun (tag, desc, _) -> 
-      Printf.printf "  %-15s : %s\n" tag desc
-    ) Targets.all;
-    print_endline "-----------------------------";
-    print_endline "  (interactive)   : Use -i flag to be the oracle.";
+    List.iter (fun (tag, desc, _) -> Printf.printf "  %-15s : %s\n" tag desc) Targets.all;
     exit 0
   );
 
   ensure_dir cfg.results_dir;
 
   print_endline "\n===========================================";
-  print_endline "   AKLEENATOR - L* LEARNING AUTOMATION";
+  print_endline "   AKLEENATOR - LAB BENCHMARK";
   print_endline "===========================================\n";
 
-  (* 2. Interactive Mode *)
   if cfg.interactive then (
-    Printf.printf ">> Mode: INTERACTIVE (You are the oracle)\n";
-    Printf.printf ">> Protocol: Type 'y' for True, anything else for False.\n";
-    print_endline "-------------------------------------------";
-    
-    let human_scenario = ("human", "Interactive Session", Targets.oracle_human) in
-    run_learning_scenario cfg human_scenario;
-    
-    print_endline "\n[Done] Interactive session finished.";
+    run_learning_scenario cfg ("human", "Interactive Session", Targets.oracle_human);
     exit 0
   );
 
-  (* 3. Automated Mode *)
-  let scenarios = 
-    match cfg.target with
+  let scenarios = match cfg.target with
     | None -> Targets.all 
-    | Some t -> 
-        let found = List.filter (fun (tag, _, _) -> tag = t) Targets.all in
-        if found = [] then (
-          Printf.printf "\n[!] Error: Target '%s' not found.\n" t;
-          exit 1
-        ) else found
+    | Some t -> List.filter (fun (tag, _, _) -> tag = t) Targets.all
   in
 
   List.iter (run_learning_scenario cfg) scenarios;
-  
-  print_endline "\n[Done] Execution finished. Check 'results/' folder."
+  print_endline "\n[Done]"

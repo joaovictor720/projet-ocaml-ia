@@ -2,14 +2,10 @@
 
 open Dfa
 
-(** Runs the L* algorithm.
+(** Available optimization strategies *)
+type algorithm = 
+  | Angluin        (** Standard: Adds all prefixes of CE to Rows (S) *)
+  | RivestSchapire (** Optimized: Binary Search to add 1 suffix to Cols (E) *)
 
-    Arguments:
-    - Alphabet: A list of characters representing the valid symbols.
-    - Oracle: A function that returns true if a string belongs to the target language.
-
-    Returns:
-    - The learned DFA (with integer states).
-    - A list of HTML strings representing the evolution of the observation table.
-*)
-val learn : char list -> (string -> bool) -> int Dfa.t * string list
+(** Runs the learning algorithm using the specified strategy. *)
+val learn : algorithm -> char list -> (string -> bool) -> int Dfa.t * string list
