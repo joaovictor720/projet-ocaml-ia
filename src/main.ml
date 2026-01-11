@@ -30,7 +30,6 @@ let string_to_char_list s =
 let export_dot dfa filename =
   let oc = open_out filename in
   Printf.fprintf oc "digraph DFA { rankdir=LR; node [shape = circle];\n";
-(* CORREÇÃO: Verifica se a lista não está vazia antes de escrever *)
   if dfa.finals <> [] then
     Printf.fprintf oc "  node [shape = doublecircle]; %s;\n" (String.concat " " (List.map string_of_int dfa.finals));  Printf.fprintf oc "  node [shape = circle];\n"; (* Reset style *)
   Printf.fprintf oc "  secret_node [style=invis, shape=point]; secret_node -> %d [label=\"start\"];\n" dfa.start;
@@ -134,7 +133,6 @@ let run_learning_scenario cfg (tag, name, oracle) =
     Printf.fprintf oc_html "<script>let c=1,t=%d;function mv(d){c+=d;if(c<1)c=1;if(c>t)c=t;up()}function up(){document.querySelectorAll('.step').forEach(e=>e.classList.remove('active'));document.getElementById('s'+c).classList.add('active');document.getElementById('lbl').innerText='Step '+c}up()</script></body></html>" (List.length debug_steps);
     close_out oc_html;
 
-    (* Export & Verify *)
     export_dot dfa (Filename.concat run_dir (Printf.sprintf "%s.dot" tag));
     
     let errors = List.fold_left (fun acc w ->

@@ -9,20 +9,18 @@ type algorithm =
   | Angluin
   | RivestSchapire
 
-(* HELPER: Crucial para o funcionamento do código *)
 let string_to_char_list s = List.of_seq (String.to_seq s)
 
 (* ========================================== *)
 (* DFA CONSTRUCTION                           *)
 (* ========================================== *)
 
-(* Retorna (DFA, Array de Representantes de Estado) *)
 let build_hypothesis table alphabet oracle =
   let raw_s_rows =
     List.map (fun s -> (s, ObservationTable.get_row table oracle s)) table.s
   in
   let rows = List.map snd raw_s_rows |> List.sort_uniq compare in
-
+  let rows_arr = Array.of_list rows in
   let row_to_idx r =
     match List.find_index (( = ) r) rows with
     | Some i -> i
@@ -30,8 +28,8 @@ let build_hypothesis table alphabet oracle =
   in
 
   let state_reps =
-    Array.init (List.length rows) (fun i ->
-        let r = List.nth rows i in
+    Array.init (Array.length rows_arr) (fun i ->
+        let r = rows_arr.(i) in
         fst (List.find (fun (_, r') -> r' = r) raw_s_rows))
   in
 
@@ -64,18 +62,18 @@ let build_hypothesis table alphabet oracle =
   (dfa, state_reps)
 
 (* ========================================== *)
-(* EQUIVALENCE ORACLE                         *)
+(* EQUIVALENCE ORACLE (                       *)
 (* ========================================== *)
 
 let find_ce dfa oracle alphabet iteration =
   let num_tries = 3000 in
   let min_len = 1 in
   let max_len = 25 in
-
+  let alpha_arr = Array.of_list alphabet in
+  let alpha_len = Array.length alpha_arr in
   let base_seed = 4242 + iteration * 97 in
-
   let random_char () =
-    List.nth alphabet (Random.int (List.length alphabet))
+    alpha_arr.(Random.int alpha_len)
   in
 
   let random_word len =
@@ -109,22 +107,19 @@ let run_angluin table ce =
   { table with s = List.sort_uniq compare (table.s @ new_rows) }
 
 (* ========================================== *)
-(* RIVEST–SCHAPIRE (LOGICA CORRETA)           *)
+(* RIVEST–SCHAPIRE                            *)
 (* ========================================== *)
 
 let run_rivest_schapire table dfa state_reps oracle ce =
   let len = String.length ce in
   let target_val = oracle ce in 
 
-  (* Roda o prefixo no DFA para descobrir em qual estado paramos *)
   let get_state_after_prefix len_prefix =
     let prefix = String.sub ce 0 len_prefix in
     let chars = string_to_char_list prefix in
     List.fold_left (fun q c -> dfa.Dfa.delta q c) dfa.Dfa.start chars
   in
 
-  (* Verifica consistência: 
-     O representante do estado atual + sufixo dá o mesmo resultado que o target? *)
   let check_consistency i =
     let state_idx = get_state_after_prefix i in
     let state_str = state_reps.(state_idx) in 
@@ -137,7 +132,6 @@ let run_rivest_schapire table dfa state_reps oracle ce =
       String.sub ce high (len - high)
     else
       let mid = (low + high) / 2 in
-      (* Se o ponto médio concorda com o início, o erro está depois *)
       if check_consistency mid = check_consistency low then
         bin_search mid high
       else
@@ -189,7 +183,6 @@ let learn algo alphabet oracle =
               in
               loop { table with e = table.e @ [e_new] } steps iteration
           | None -> (
-              (* Recupera DFA e Representantes *)
               let (dfa, state_reps) = build_hypothesis table alphabet oracle in
               match find_ce dfa oracle alphabet iteration with
               | None -> (dfa, List.rev steps)
@@ -197,7 +190,6 @@ let learn algo alphabet oracle =
                   let table =
                     match algo with
                     | Angluin -> run_angluin table ce
-                    (* Passa argumentos extras para o RS *)
                     | RivestSchapire -> run_rivest_schapire table dfa state_reps oracle ce
                   in
                   loop table steps (iteration + 1)))
