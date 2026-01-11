@@ -1,0 +1,52 @@
+<html><head><title>Even number of 1s Trace</title>
+    <style>body{font-family:sans-serif;background:#f4f4f9;padding:20px} .step{display:none;background:#fff;padding:20px;border-radius:8px} .active{display:block} table{border-collapse:collapse} td,th{border:1px solid #ccc;padding:5px}</style>
+    </head><body><h1>Trace: Even number of 1s</h1>
+    <h3>Config: angluin | Cache OFF</h3>
+    <p><strong>Queries:</strong> 3029 | <strong>Time:</strong> 0.0292s</p>
+    <button onclick='mv(-1)'>Prev</button> <span id='lbl'>Step 1</span> <button onclick='mv(1)'>Next</button><div class='step' id='s1'><h2>Step 1</h2><table border='1' style='border-collapse: collapse; text-align: center; font-family: monospace; margin-bottom: 20px;'>
+  <tr style='background-color: #f0f0f0;'>
+    <th style='padding: 8px;'>T</th>
+    <th style='padding: 8px;'>&epsilon;</th>
+  </tr>
+  <tr style='background-color: #ffffff;'>
+    <td style='padding: 5px; font-weight: bold;'>&epsilon;</td>
+    <td style='padding: 5px; color: green;'>1</td>
+  </tr>
+  <tr style='background-color: #000; height: 2px;'><td colspan='2'></td></tr>
+  <tr style='background-color: #fafafa;'>
+    <td style='padding: 5px; font-weight: normal;'>0</td>
+    <td style='padding: 5px; color: green;'>1</td>
+  </tr>
+  <tr style='background-color: #fafafa;'>
+    <td style='padding: 5px; font-weight: normal;'>1</td>
+    <td style='padding: 5px; color: red;'>0</td>
+  </tr>
+</table>
+</div><div class='step' id='s2'><h2>Step 2</h2><table border='1' style='border-collapse: collapse; text-align: center; font-family: monospace; margin-bottom: 20px;'>
+  <tr style='background-color: #f0f0f0;'>
+    <th style='padding: 8px;'>T</th>
+    <th style='padding: 8px;'>&epsilon;</th>
+  </tr>
+  <tr style='background-color: #ffffff;'>
+    <td style='padding: 5px; font-weight: bold;'>&epsilon;</td>
+    <td style='padding: 5px; color: green;'>1</td>
+  </tr>
+  <tr style='background-color: #ffffff;'>
+    <td style='padding: 5px; font-weight: bold;'>1</td>
+    <td style='padding: 5px; color: red;'>0</td>
+  </tr>
+  <tr style='background-color: #000; height: 2px;'><td colspan='2'></td></tr>
+  <tr style='background-color: #fafafa;'>
+    <td style='padding: 5px; font-weight: normal;'>0</td>
+    <td style='padding: 5px; color: green;'>1</td>
+  </tr>
+  <tr style='background-color: #fafafa;'>
+    <td style='padding: 5px; font-weight: normal;'>10</td>
+    <td style='padding: 5px; color: red;'>0</td>
+  </tr>
+  <tr style='background-color: #fafafa;'>
+    <td style='padding: 5px; font-weight: normal;'>11</td>
+    <td style='padding: 5px; color: green;'>1</td>
+  </tr>
+</table>
+</div><script>let c=1,t=2;function mv(d){c+=d;if(c<1)c=1;if(c>t)c=t;up()}function up(){document.querySelectorAll('.step').forEach(e=>e.classList.remove('active'));document.getElementById('s'+c).classList.add('active');document.getElementById('lbl').innerText='Step '+c}up()</script></body></html>

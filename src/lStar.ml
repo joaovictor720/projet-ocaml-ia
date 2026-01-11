@@ -2,171 +2,204 @@ open Dfa
 open ObservationTable
 
 (* ========================================== *)
-(* TYPE DEFINITIONS                           *)
+(* TYPES                                      *)
 (* ========================================== *)
 
-type algorithm = 
-  | Angluin        (* Classic L* *)
-  | RivestSchapire (* Optimized L* *)
+type algorithm =
+  | Angluin
+  | RivestSchapire
 
-(* ========================================== *)
-(* COMMON HELPERS                             *)
-(* ========================================== *)
-
+(* HELPER: Crucial para o funcionamento do código *)
 let string_to_char_list s = List.of_seq (String.to_seq s)
 
-(* OPTIMIZED: Materializes the DFA Transitions to avoid repeated Oracle calls *)
+(* ========================================== *)
+(* DFA CONSTRUCTION                           *)
+(* ========================================== *)
+
+(* Retorna (DFA, Array de Representantes de Estado) *)
 let build_hypothesis table alphabet oracle =
-  (* 1. Identify Unique Rows (States) *)
-  (* We cache the row values to avoid re-querying inside the sort *)
-  let raw_s_rows = List.map (fun s -> (s, ObservationTable.get_row table oracle s)) table.s in
+  let raw_s_rows =
+    List.map (fun s -> (s, ObservationTable.get_row table oracle s)) table.s
+  in
   let rows = List.map snd raw_s_rows |> List.sort_uniq compare in
-  
-  let num_states = List.length rows in
-  
-  let row_to_idx r = 
-    match List.find_index (fun x -> x = r) rows with
+
+  let row_to_idx r =
+    match List.find_index (( = ) r) rows with
     | Some i -> i
-    | None -> failwith "Fatal: Row not found in hypothesis construction"
+    | None -> failwith "Row not found"
   in
-  
-  (* 2. Find a Representative String 's' for each State Index *)
-  (* Instead of searching table.s every time, we pre-calculate this map *)
-  let state_reps = Array.init num_states (fun i ->
-      let target_row = List.nth rows i in
-      (* Find the first 's' in raw_s_rows that produces this row *)
-      let (s, _) = List.find (fun (_, r) -> r = target_row) raw_s_rows in
-      s
-  ) in
 
-  (* 3. Materialize the Transition Matrix *)
-  (* Matrix[State][Char] -> Next State Index *)
-  (* This executes the oracle queries once per state/char, saving HUGE amounts of time *)
-  let transition_matrix = Array.init num_states (fun i ->
-      let s = state_reps.(i) in
-      List.map (fun c ->
-          let next_row = ObservationTable.get_row table oracle (s ^ String.make 1 c) in
-          (c, row_to_idx next_row)
-      ) alphabet
-  ) in
+  let state_reps =
+    Array.init (List.length rows) (fun i ->
+        let r = List.nth rows i in
+        fst (List.find (fun (_, r') -> r' = r) raw_s_rows))
+  in
 
-  (* 4. Materialize Final States *)
-  let finals_list = List.filter (fun i -> 
-      oracle state_reps.(i)
-  ) (List.init num_states (fun i -> i)) in
+  let transition_matrix =
+    Array.init (Array.length state_reps) (fun i ->
+        let s = state_reps.(i) in
+        List.map
+          (fun c ->
+            let next =
+              ObservationTable.get_row table oracle (s ^ String.make 1 c)
+            in
+            (c, row_to_idx next))
+          alphabet)
+  in
 
-  { Dfa.alpha = alphabet; 
-    states = List.init num_states (fun i -> i);
+  let finals =
+    List.filter
+      (fun i -> oracle state_reps.(i))
+      (List.init (Array.length state_reps) Fun.id)
+  in
+
+  let dfa = {
+    Dfa.alpha = alphabet;
+    states = List.init (Array.length state_reps) Fun.id;
     start = row_to_idx (ObservationTable.get_row table oracle "");
-    finals = finals_list;
-    
-    (* 5. Fast Delta: O(1) Lookup, NO Oracle calls *)
-    delta = (fun q c -> List.assoc c transition_matrix.(q)); 
-  }
-
-(* Searches for a Counter-Example (CE) using BFS *)
-let find_ce dfa oracle alphabet =
-  let rec gen n = 
-    if n = 0 then [""] 
-    else let ws = gen (n-1) in List.concat_map (fun c -> List.map (fun w -> w ^ String.make 1 c) ws) alphabet 
-  in
-  (* Depth limit 10 is enough for small examples, increase for complex ones *)
-  let rec loop i = 
-    if i > 10 then None 
-    else match List.find_opt (fun w -> Dfa.membership dfa (string_to_char_list w) <> oracle w) (gen i) with
-      | Some w -> Some w | None -> loop (i+1)
-  in loop 0
+    finals;
+    delta = (fun q c -> List.assoc c transition_matrix.(q));
+  } in
+  
+  (dfa, state_reps)
 
 (* ========================================== *)
-(* STRATEGY 0: ANGLUIN (The Classic)          *)
+(* EQUIVALENCE ORACLE                         *)
+(* ========================================== *)
+
+let find_ce dfa oracle alphabet iteration =
+  let num_tries = 3000 in
+  let min_len = 1 in
+  let max_len = 25 in
+
+  let base_seed = 4242 + iteration * 97 in
+
+  let random_char () =
+    List.nth alphabet (Random.int (List.length alphabet))
+  in
+
+  let random_word len =
+    String.init len (fun _ -> random_char ())
+  in
+
+  let rec attempt i =
+    if i > num_tries then None
+    else (
+      Random.init (base_seed + i);
+      let len = min_len + Random.int (max_len - min_len + 1) in
+      let w = random_word len in
+      if
+        Dfa.membership dfa (string_to_char_list w)
+        <> oracle w
+      then Some w
+      else attempt (i + 1))
+  in
+  attempt 0
+
+(* ========================================== *)
+(* ANGLUIN UPDATE                             *)
 (* ========================================== *)
 
 let run_angluin table ce =
-  let rec prefixes i = 
-    if i > String.length ce then [] 
-    else String.sub ce 0 i :: prefixes (i+1) 
+  let rec prefixes i =
+    if i > String.length ce then []
+    else String.sub ce 0 i :: prefixes (i + 1)
   in
   let new_rows = prefixes 0 in
   { table with s = List.sort_uniq compare (table.s @ new_rows) }
 
 (* ========================================== *)
-(* STRATEGY 1: RIVEST-SCHAPIRE (Robust)       *)
+(* RIVEST–SCHAPIRE (LOGICA CORRETA)           *)
 (* ========================================== *)
 
-let run_rivest_schapire table dfa oracle ce =
+let run_rivest_schapire table dfa state_reps oracle ce =
   let len = String.length ce in
-  let ce_chars = string_to_char_list ce in
   let target_val = oracle ce in 
 
-  (* 1. Binary Search Logic *)
+  (* Roda o prefixo no DFA para descobrir em qual estado paramos *)
+  let get_state_after_prefix len_prefix =
+    let prefix = String.sub ce 0 len_prefix in
+    let chars = string_to_char_list prefix in
+    List.fold_left (fun q c -> dfa.Dfa.delta q c) dfa.Dfa.start chars
+  in
+
+  (* Verifica consistência: 
+     O representante do estado atual + sufixo dá o mesmo resultado que o target? *)
   let check_consistency i =
-    let prefix_chars = List.init i (fun k -> List.nth ce_chars k) in
-    let suffix_chars = List.filteri (fun k _ -> k >= i) ce_chars in
-    let q = List.fold_left (fun s c -> dfa.Dfa.delta s c) dfa.Dfa.start prefix_chars in
-    Dfa.membership { dfa with start = q } suffix_chars = target_val
+    let state_idx = get_state_after_prefix i in
+    let state_str = state_reps.(state_idx) in 
+    let suffix = String.sub ce i (len - i) in
+    oracle (state_str ^ suffix) = target_val
   in
 
   let rec bin_search low high =
-    if low + 1 >= high then String.sub ce high (len - high)
+    if low + 1 >= high then
+      String.sub ce high (len - high)
     else
       let mid = (low + high) / 2 in
-      if check_consistency mid then bin_search mid high
-      else bin_search low mid
-  in
-  
-  let suffix = bin_search 0 len in
-  
-  (* 2. Collision Handling Logic *)
-  if not (List.mem suffix table.e) then
-      (* Happy Path: New suffix found! *)
-      { table with e = table.e @ [suffix] }
-  else
-      (* COLLISION DETECTED: The suffix exists. *)
-      (* Step A: Try Angluin strategy (Add Rows) *)
-      let table_angluin = run_angluin table ce in
-      
-      (* Check if Angluin actually did something new *)
-      if List.length table_angluin.s > List.length table.s then
-        table_angluin
+      (* Se o ponto médio concorda com o início, o erro está depois *)
+      if check_consistency mid = check_consistency low then
+        bin_search mid high
       else
-        (* EMERGENCY BREAK: Angluin didn't add new rows (or rows didn't help). *)
-        (* Force the Counter-Example itself as a new Column to split states. *)
-        { table with e = List.sort_uniq String.compare (table.e @ [ce]) }
+        bin_search low mid
+  in
+
+  let suffix = bin_search 0 len in
+
+  if List.mem suffix table.e then table
+  else { table with e = table.e @ [suffix] }
 
 (* ========================================== *)
 (* MAIN LEARNING LOOP                         *)
 (* ========================================== *)
 
 let learn algo alphabet oracle =
-  
-  let rec loop table steps =
-    Printf.printf "Cycle: %d | Rows: %d | Cols: %d\n%!" (List.length steps) (List.length table.s) (List.length table.e);
-    let current_html = ObservationTable.to_html table alphabet oracle in
-    let new_steps = current_html :: steps in
+  let rec loop table steps iteration =
+    Printf.printf "Iter %d | S=%d | E=%d\n%!"
+      iteration (List.length table.s) (List.length table.e);
 
-    match ObservationTable.is_closed table alphabet oracle with
-    | Some sa -> 
-        loop { table with s = table.s @ [sa] } new_steps
+    let html = ObservationTable.to_html table alphabet oracle in
+    let steps = html :: steps in
 
-    | None -> 
-        match ObservationTable.is_consistent table alphabet oracle with
-        | Some (s1, s2, a) ->
-            let r1 = ObservationTable.get_row table oracle (s1 ^ String.make 1 a) in
-            let r2 = ObservationTable.get_row table oracle (s2 ^ String.make 1 a) in
-            let e_new = List.find_map (fun (suffix, (b1, b2)) -> 
-              if b1 <> b2 then Some (String.make 1 a ^ suffix) else None) 
-              (List.combine table.e (List.combine r1 r2)) |> Option.get in
-            loop { table with e = table.e @ [e_new] } new_steps
-
-        | None -> 
-            let dfa = build_hypothesis table alphabet oracle in
-            match find_ce dfa oracle alphabet with
-            | None -> (dfa, List.rev new_steps)
-            | Some ce -> 
-                let updated_table = match algo with
-                  | Angluin -> run_angluin table ce
-                  | RivestSchapire -> run_rivest_schapire table dfa oracle ce
-                in
-                loop updated_table new_steps
+    if iteration > 150 then
+      let (dfa, _) = build_hypothesis table alphabet oracle in
+      (dfa, List.rev steps)
+    else
+      match ObservationTable.is_closed table alphabet oracle with
+      | Some sa ->
+          loop { table with s = table.s @ [sa] } steps iteration
+      | None -> (
+          match ObservationTable.is_consistent table alphabet oracle with
+          | Some (s1, s2, a) ->
+              let r1 =
+                ObservationTable.get_row table oracle
+                  (s1 ^ String.make 1 a)
+              in
+              let r2 =
+                ObservationTable.get_row table oracle
+                  (s2 ^ String.make 1 a)
+              in
+              let e_new =
+                List.find_map
+                  (fun (e, (b1, b2)) ->
+                    if b1 <> b2 then Some (String.make 1 a ^ e)
+                    else None)
+                  (List.combine table.e (List.combine r1 r2))
+                |> Option.get
+              in
+              loop { table with e = table.e @ [e_new] } steps iteration
+          | None -> (
+              (* Recupera DFA e Representantes *)
+              let (dfa, state_reps) = build_hypothesis table alphabet oracle in
+              match find_ce dfa oracle alphabet iteration with
+              | None -> (dfa, List.rev steps)
+              | Some ce ->
+                  let table =
+                    match algo with
+                    | Angluin -> run_angluin table ce
+                    (* Passa argumentos extras para o RS *)
+                    | RivestSchapire -> run_rivest_schapire table dfa state_reps oracle ce
+                  in
+                  loop table steps (iteration + 1)))
   in
-  loop ObservationTable.empty []
+  loop ObservationTable.empty [] 1

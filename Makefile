@@ -9,6 +9,7 @@ BIN_DIR  = bin
 OBJ_DIR  = obj
 RSLT_DIR = results
 GRF_DIR = graphs
+GRFDIM_DIR = graphs_dim
 
 # --- Compiler & Flags ---
 OCAMLC = ocamlc
@@ -83,7 +84,7 @@ $(OBJ_DIR)/tests.cmo: $(OBJ_DIR)/dfa.cmo
 # ==========================================
 
 clean:
-	rm -rf $(OBJ_DIR) $(BIN_DIR) $(RSLT_DIR) $(GRF_DIR)
+	rm -rf $(OBJ_DIR) $(BIN_DIR) $(RSLT_DIR) $(GRF_DIR) $(GRFDIM_DIR)
 
 test: $(TEST_TARGET)
 	@echo "--- Running Test Suite ---"
@@ -91,11 +92,14 @@ test: $(TEST_TARGET)
 
 # Generate graphs recursively in all result subfolders
 define generate_graphs
-	@echo "--- Generating Graphviz Images ---"
-	@find $(RSLT_DIR) -name "*.dot" | while read file; do \
-		echo "   [+] Converting $$(basename $$file) in $$(dirname $$file)..."; \
-		dot -Tpng "$$file" -o "$${file%.dot}.png"; \
-	done
+    @echo "--- Generating Graphviz Images $(if $(T),for target: $(T),) ---"
+    @find $(RSLT_DIR) -name "*$(T).dot" | while read file; do \
+        png="$${file%.dot}.png"; \
+        if [ ! -f "$$png" ] || [ "$$file" -nt "$$png" ]; then \
+            echo "   [+] Converting $$(basename $$file) in $$(dirname $$file)..."; \
+            dot -Tpng "$$file" -o "$$png"; \
+        fi; \
+    done
 endef
 
 # 1. Run Everything (Standard Mode)

@@ -21,12 +21,11 @@ TARGETS = [
     "div_by_5", 
     "div_by_25", 
     "div_by_7",
-    "div_by_15",
     "bit_4", 
     "bit_6",
-    "bit_8",
     "len_10",
-    "len_20"
+    "suffix_hard",
+    "contains_110"
 ]
 
 # Map display names to folder names
