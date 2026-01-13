@@ -8,32 +8,47 @@ open LStar
 module D = Dfa
 open D
 
+(** Runtime configuration extracted from command-line arguments *)
 type config = {
-  target : string option;
-  list_mode : bool;
-  interactive : bool;
-  algo : LStar.algorithm;
-  use_cache : bool;
-  results_dir : string;
+  target : string option;      (** Specific target to run (or None for all) *)
+  list_mode : bool;            (** Flag to just list available targets *)
+  interactive : bool;          (** Flag for interactive human oracle *)
+  algo : LStar.algorithm;      (** Selected algorithm strategy *)
+  use_cache : bool;            (** Enable/Disable oracle memoization *)
+  results_dir : string;        (** Output directory *)
 }
 
 (* ========================================== *)
 (* UTILITIES                                  *)
 (* ========================================== *)
 
+(** Creates the directory if it doesn't exist (Side-effect: IO) *)
 let ensure_dir dir =
   if not (Sys.file_exists dir) then Sys.mkdir dir 0o755
 
+(** Helper: Converts standard string to char list for DFA processing *)
 let string_to_char_list s =
   List.of_seq (String.to_seq s)
 
+(** Exports the generated DFA to Graphviz DOT format.
+    This function is purely for visualization/IO. *)
 let export_dot dfa filename =
   let oc = open_out filename in
   Printf.fprintf oc "digraph DFA { rankdir=LR; node [shape = circle];\n";
+  
+  (* Highlight final states with double circles *)
   if dfa.finals <> [] then
-    Printf.fprintf oc "  node [shape = doublecircle]; %s;\n" (String.concat " " (List.map string_of_int dfa.finals));  Printf.fprintf oc "  node [shape = circle];\n"; (* Reset style *)
+    Printf.fprintf oc "  node [shape = doublecircle]; %s;\n" 
+      (String.concat " " (List.map string_of_int dfa.finals));
+  
+  Printf.fprintf oc "  node [shape = circle];\n"; (* Reset style *)
+  
+  (* Invisible start node arrow *)
   Printf.fprintf oc "  secret_node [style=invis, shape=point]; secret_node -> %d [label=\"start\"];\n" dfa.start;
+  
+  (* Render transitions *)
   List.iter (fun q ->
+    (* Group transitions by target state to make the graph cleaner *)
     let transitions = List.fold_left (fun acc a ->
         let target = dfa.delta q a in
         let existing = try List.assoc target acc with Not_found -> [] in
@@ -41,31 +56,41 @@ let export_dot dfa filename =
       ) [] dfa.alpha 
     in
     List.iter (fun (t, chars) ->
+      (* Create label like "0, 1" if multiple chars go to the same state *)
       let lbl = String.concat ", " (List.map (String.make 1) (List.sort Char.compare chars)) in
       Printf.fprintf oc "  %d -> %d [label=\"%s\"];\n" q t lbl
     ) transitions
   ) dfa.states;
-  Printf.fprintf oc "}\n"; close_out oc
+  
+  Printf.fprintf oc "}\n"; 
+  close_out oc
 
 (* ========================================== *)
 (* ORACLE WRAPPERS                            *)
 (* ========================================== *)
 
+(** Wrapper that logs every query to a file.
+    Note: Uses a 'ref' counter for auditing purposes (IO logic). *)
 let make_logged_oracle oracle log_file =
   let oc = open_out log_file in
   let counter = ref 0 in
   let wrapper w =
     incr counter;
     let res = oracle w in
+    (* Log to FILE only, keeping terminal clean *)
     Printf.fprintf oc "[Query %d] Word: '%s' -> %b\n" !counter w res;
     res
   in
   (wrapper, counter, oc)
 
+(** Wrapper that adds Memoization (Caching) to the oracle.
+    Justification for Mutable State: 
+    Used strictly for performance optimization (IO/Computation cache) 
+    to enable benchmarking of large automata. Does not affect algorithm logic. *)
 let make_cached_oracle oracle log_file =
   let oc = open_out log_file in
   let counter = ref 0 in
-  let cache = Hashtbl.create 2048 in
+  let cache = Hashtbl.create 2048 in (* Mutable Hash Table for O(1) access *)
   
   let wrapper w =
     try
@@ -73,6 +98,7 @@ let make_cached_oracle oracle log_file =
     with Not_found ->
       incr counter;
       let res = oracle w in
+      (* Log new queries to FILE *)
       Printf.fprintf oc "[Query %d] Word: '%s' -> %b\n" !counter w res;
       Hashtbl.add cache w res;
       res
@@ -84,26 +110,25 @@ let make_cached_oracle oracle log_file =
 (* ========================================== *)
 
 let run_learning_scenario cfg (tag, name, oracle) =
-  (* 1. Determine Folder Name based on CONFIGURATION only *)
+  (* 1. Setup Environment *)
   let algo_suffix = match cfg.algo with LStar.Angluin -> "angluin" | LStar.RivestSchapire -> "rs" in
   let cache_suffix = if cfg.use_cache then "cached" else "raw" in
   
-  (* Example folder: results/rs_cached/ *)
   let config_dir_name = Printf.sprintf "%s_%s" algo_suffix cache_suffix in
   let run_dir = Filename.concat cfg.results_dir config_dir_name in
   ensure_dir run_dir;
 
   Printf.printf ">> Learning: %s [Algo: %s | Cache: %b]\n" name algo_suffix cfg.use_cache;
   
-  (* 2. Determine Filenames based on TARGET tag *)
-  (* Example file: results/rs_cached/even_ones_queries.log *)
   let log_filename = Filename.concat run_dir (Printf.sprintf "%s_queries.log" tag) in
   
+  (* 2. Initialize Oracle Wrapper *)
   let (spy_oracle, query_count, log_channel) = 
     if cfg.use_cache then make_cached_oracle oracle log_filename
     else make_logged_oracle oracle log_filename
   in
   
+  (* Sanity check words to verify the final DFA against known edge cases *)
   let test_words = [
     ""; "0"; "1"; "00"; "01"; "10"; "11"; "1100"; "111"; "10101"; 
     "1111"; "1001"; "0101"; "10110"; "11101"; "11111"; "00000"
@@ -113,10 +138,13 @@ let run_learning_scenario cfg (tag, name, oracle) =
     let alphabet = ['0'; '1'] in
     let start_time = Sys.time () in
     
+    (* 3. RUN THE LEARNING ALGORITHM *)
+    (* Note: Logs inside LStar.learn handle terminal output for progress *)
     let (dfa, debug_steps) = LStar.learn cfg.algo alphabet spy_oracle in
+    
     let duration = Sys.time () -. start_time in
 
-    (* HTML Generator *)
+    (* 4. Generate HTML Trace Report *)
     let html_filename = Filename.concat run_dir (Printf.sprintf "%s_debug.html" tag) in
     let oc_html = open_out html_filename in
     
@@ -133,6 +161,7 @@ let run_learning_scenario cfg (tag, name, oracle) =
     Printf.fprintf oc_html "<script>let c=1,t=%d;function mv(d){c+=d;if(c<1)c=1;if(c>t)c=t;up()}function up(){document.querySelectorAll('.step').forEach(e=>e.classList.remove('active'));document.getElementById('s'+c).classList.add('active');document.getElementById('lbl').innerText='Step '+c}up()</script></body></html>" (List.length debug_steps);
     close_out oc_html;
 
+    (* 5. Export and Final Verification *)
     export_dot dfa (Filename.concat run_dir (Printf.sprintf "%s.dot" tag));
     
     let errors = List.fold_left (fun acc w ->
@@ -140,7 +169,8 @@ let run_learning_scenario cfg (tag, name, oracle) =
     ) 0 test_words in
 
     Printf.printf "   [i] Time: %.4fs | Queries: %d | States: %d\n" duration !query_count (List.length dfa.states);
-    if errors > 0 then Printf.printf "   [FAIL] %d errors\n" errors else Printf.printf "   [OK] Verified\n";
+    if errors > 0 then Printf.printf "   [FAIL] %d errors found in sanity check\n" errors 
+    else Printf.printf "   [OK] Verified against basic test set\n";
     
     print_endline "-------------------------------------------";
     close_out log_channel
@@ -165,8 +195,8 @@ let parse_config () =
     ("-t", Arg.Set_string target_ref, "Run a specific scenario by tag");
     ("-list", Arg.Set list_ref, "List all available scenarios");
     ("-i", Arg.Set interactive_ref, "Interactive Mode");
-    ("-algo", Arg.Set_string algo_ref, "angluin | rs");
-    ("-no-cache", Arg.Set no_cache_ref, "Disable memoization");
+    ("-algo", Arg.Set_string algo_ref, "Algorithm: angluin | rs");
+    ("-no-cache", Arg.Set no_cache_ref, "Disable oracle memoization");
   ] in
   
   let usage = "Usage: ./bin/lstar [-t <tag>] [-algo rs] [-no-cache]" in

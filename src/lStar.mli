@@ -1,11 +1,14 @@
-(** LStar.mli *)
+(** LStar.mli
+    Core implementation of the L* Active Learning Algorithm.
+    This module orchestrates the interaction between the Observation Table,
+    the Hypothesis DFA, and the Equivalence Oracle.
+*)
 
 open Dfa
 
-(** Available optimization strategies *)
+(** Strategies for handling counter-examples (CE) found by the oracle. *)
 type algorithm = 
-  | Angluin        (** Standard: Adds all prefixes of CE to Rows (S) *)
-  | RivestSchapire (** Optimized: Binary Search to add 1 suffix to Cols (E) *)
+  | Angluin        (** Classic approach: Adds all prefixes of the CE to S. *)
+  | RivestSchapire (** Optimized approach: Uses binary search to find 1 distinguishing suffix. *)
 
-(** Runs the learning algorithm using the specified strategy. *)
 val learn : algorithm -> char list -> (string -> bool) -> int Dfa.t * string list
