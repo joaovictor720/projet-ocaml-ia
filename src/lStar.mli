@@ -11,4 +11,4 @@ type algorithm =
   | Angluin        (** Classic approach: Adds all prefixes of the CE to S. *)
   | RivestSchapire (** Optimized approach: Uses binary search to find 1 distinguishing suffix. *)
 
-val learn : algorithm -> char list -> (string -> bool) -> int Dfa.t * string list
+val learn : algorithm -> char list -> (string -> bool) -> int -> int Dfa.t * string list

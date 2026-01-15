@@ -15,6 +15,7 @@ type config = {
   interactive : bool;          (** Flag for interactive human oracle *)
   algo : LStar.algorithm;      (** Selected algorithm strategy *)
   use_cache : bool;            (** Enable/Disable oracle memoization *)
+  equivalence_checks : int;    (** Number of random checks for equivalence *)
   results_dir : string;        (** Output directory *)
 }
 
@@ -118,7 +119,7 @@ let run_learning_scenario cfg (tag, name, oracle) =
   let run_dir = Filename.concat cfg.results_dir config_dir_name in
   ensure_dir run_dir;
 
-  Printf.printf ">> Learning: %s [Algo: %s | Cache: %b]\n" name algo_suffix cfg.use_cache;
+  Printf.printf ">> Learning: %s [Algo: %s | Cache: %b | Checks: %d]\n" name algo_suffix cfg.use_cache cfg.equivalence_checks;
   
   let log_filename = Filename.concat run_dir (Printf.sprintf "%s_queries.log" tag) in
   
@@ -140,7 +141,7 @@ let run_learning_scenario cfg (tag, name, oracle) =
     
     (* 3. RUN THE LEARNING ALGORITHM *)
     (* Note: Logs inside LStar.learn handle terminal output for progress *)
-    let (dfa, debug_steps) = LStar.learn cfg.algo alphabet spy_oracle in
+    let (dfa, debug_steps) = LStar.learn cfg.algo alphabet spy_oracle cfg.equivalence_checks in
     
     let duration = Sys.time () -. start_time in
 
@@ -190,6 +191,7 @@ let parse_config () =
   let interactive_ref = ref false in
   let algo_ref = ref "rs" in
   let no_cache_ref = ref false in
+  let checks_ref = ref 3000 in
   
   let speclist = [
     ("-t", Arg.Set_string target_ref, "Run a specific scenario by tag");
@@ -197,9 +199,10 @@ let parse_config () =
     ("-i", Arg.Set interactive_ref, "Interactive Mode");
     ("-algo", Arg.Set_string algo_ref, "Algorithm: angluin | rs");
     ("-no-cache", Arg.Set no_cache_ref, "Disable oracle memoization");
+    ("-n", Arg.Set_int checks_ref, "Number of equivalence checks (default 3000)");
   ] in
   
-  let usage = "Usage: ./bin/lstar [-t <tag>] [-algo rs] [-no-cache]" in
+  let usage = "Usage: ./bin/lstar [-t <tag>] [-algo rs] [-no-cache] [-n 5000]" in
   Arg.parse speclist (fun _ -> ()) usage;
   
   let algo = match String.lowercase_ascii !algo_ref with
@@ -213,6 +216,7 @@ let parse_config () =
     interactive = !interactive_ref;
     algo = algo;
     use_cache = not !no_cache_ref;
+    equivalence_checks = !checks_ref;
     results_dir = "results";
   }
 

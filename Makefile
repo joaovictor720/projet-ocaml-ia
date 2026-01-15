@@ -1,5 +1,5 @@
 # ==========================================
-#  PROJECT CONFIGURATION
+#   PROJECT CONFIGURATION
 # ==========================================
 
 # --- Directory Structure ---
@@ -18,14 +18,15 @@ FLAGS  = -I $(OBJ_DIR) -g
 # --- Run Configuration (Defaults) ---
 ALGO ?= rs
 CACHE ?= 1
+CHECKS ?= 3000
 
-CMD_ARGS = -algo $(ALGO)
+CMD_ARGS = -algo $(ALGO) -n $(CHECKS)
 ifeq ($(CACHE),0)
-    CMD_ARGS += -no-cache
+	CMD_ARGS += -no-cache
 endif
 
 # ==========================================
-#  FILES & OBJECTS
+#   FILES & OBJECTS
 # ==========================================
 
 LIB_MODULES = dfa observationTable lStar targets
@@ -35,7 +36,7 @@ TARGET      = $(BIN_DIR)/lstar
 TEST_TARGET = $(BIN_DIR)/tests_run
 
 # ==========================================
-#  MAIN RULES
+#   MAIN RULES
 # ==========================================
 
 .PHONY: all clean test run interactive run-only help benchmark benchmark-all list-algos list-scenarios
@@ -53,7 +54,7 @@ $(TEST_TARGET): $(LIB_OBJS) $(OBJ_DIR)/tests.cmo
 	$(OCAMLC) $(FLAGS) -o $@ $^
 
 # ==========================================
-#  COMPILATION RULES
+#   COMPILATION RULES
 # ==========================================
 
 $(OBJ_DIR)/%.cmi: $(SRC_DIR)/%.mli
@@ -69,7 +70,7 @@ $(OBJ_DIR)/%.cmo: $(TEST_DIR)/%.ml
 	$(OCAMLC) $(FLAGS) -c -o $@ $<
 
 # ==========================================
-#  DEPENDENCIES
+#   DEPENDENCIES
 # ==========================================
 
 $(OBJ_DIR)/dfa.cmo: $(OBJ_DIR)/dfa.cmi
@@ -80,7 +81,7 @@ $(OBJ_DIR)/main.cmo: $(OBJ_DIR)/lStar.cmo $(OBJ_DIR)/dfa.cmo $(OBJ_DIR)/targets.
 $(OBJ_DIR)/tests.cmo: $(OBJ_DIR)/dfa.cmo
 
 # ==========================================
-#  COMMANDS & UTILITIES
+#   COMMANDS & UTILITIES
 # ==========================================
 
 clean:
@@ -92,20 +93,20 @@ test: $(TEST_TARGET)
 
 # Generate graphs recursively in all result subfolders
 define generate_graphs
-    @echo "--- Generating Graphviz Images $(if $(T),for target: $(T),) ---"
-    @find $(RSLT_DIR) -name "*$(T).dot" | while read file; do \
-        png="$${file%.dot}.png"; \
-        if [ ! -f "$$png" ] || [ "$$file" -nt "$$png" ]; then \
-            echo "   [+] Converting $$(basename $$file) in $$(dirname $$file)..."; \
-            dot -Tpng "$$file" -o "$$png"; \
-        fi; \
-    done
+	@echo "--- Generating Graphviz Images $(if $(T),for target: $(T),) ---"
+	@find $(RSLT_DIR) -name "*$(T).dot" | while read file; do \
+		png="$${file%.dot}.png"; \
+		if [ ! -f "$$png" ] || [ "$$file" -nt "$$png" ]; then \
+			echo "   [+] Converting $$(basename $$file) in $$(dirname $$file)..."; \
+			dot -Tpng "$$file" -o "$$png"; \
+		fi; \
+	done
 endef
 
 # 1. Run Everything (Standard Mode)
 run: $(TARGET)
 	@mkdir -p $(RSLT_DIR)
-	@echo "--- Running All Scenarios [Algo: $(ALGO) | Cache: $(CACHE)] ---"
+	@echo "--- Running All Scenarios [Algo: $(ALGO) | Cache: $(CACHE) | Checks: $(CHECKS)] ---"
 	@./$(TARGET) $(CMD_ARGS)
 	$(generate_graphs)
 	@echo "--- Done. See $(RSLT_DIR)/ ---"
@@ -117,7 +118,7 @@ run-only: $(TARGET)
 		echo "[!] Error: Specify target T=<name> (e.g., make run-only T=even_ones)"; \
 		exit 1; \
 	fi
-	@echo "--- Running $(T) [Algo: $(ALGO) | Cache: $(CACHE)] ---"
+	@echo "--- Running $(T) [Algo: $(ALGO) | Cache: $(CACHE) | Checks: $(CHECKS)] ---"
 	@./$(TARGET) -t $(T) $(CMD_ARGS)
 	$(generate_graphs)
 
@@ -132,13 +133,13 @@ benchmark: $(TARGET)
 	@if [ -z "$(T)" ]; then echo "[!] Specify T=<tag>"; exit 1; fi
 	@echo "\n=== BENCHMARKING TARGET: $(T) ===\n"
 	@echo "[1/4] RS + Cache..."
-	@./$(TARGET) -t $(T) -algo rs > /dev/null
+	@./$(TARGET) -t $(T) -algo rs -n $(CHECKS) > /dev/null
 	@echo "[2/4] RS + Raw..."
-	@./$(TARGET) -t $(T) -algo rs -no-cache > /dev/null
+	@./$(TARGET) -t $(T) -algo rs -no-cache -n $(CHECKS) > /dev/null
 	@echo "[3/4] Angluin + Cache..."
-	@./$(TARGET) -t $(T) -algo angluin > /dev/null
+	@./$(TARGET) -t $(T) -algo angluin -n $(CHECKS) > /dev/null
 	@echo "[4/4] Angluin + Raw..."
-	@./$(TARGET) -t $(T) -algo angluin -no-cache > /dev/null
+	@./$(TARGET) -t $(T) -algo angluin -no-cache -n $(CHECKS) > /dev/null
 	$(generate_graphs)
 
 # 5. GRAND BENCHMARK: Runs Benchmark for ALL Scenarios
@@ -149,7 +150,7 @@ benchmark-all: $(TARGET)
 	@echo "=======================================\n"
 	@# Script mágico: Pega a lista do programa, filtra e itera
 	@./$(TARGET) -list | grep "^  [a-z]" | awk '{print $$1}' | while read tag; do \
-		$(MAKE) --no-print-directory benchmark T=$$tag; \
+		$(MAKE) --no-print-directory benchmark T=$$tag CHECKS=$(CHECKS); \
 	done
 	@echo "\n======================================="
 	@echo "   FULL SUITE COMPLETED"
@@ -176,11 +177,12 @@ list-algos:
 help:
 	@echo "Akleenator Build System"
 	@echo "======================="
-	@echo "  make benchmark-all   : RUN EVERYTHING (All targets x 4 configs)."
-	@echo "  make benchmark T=xxx : Benchmark a single target."
-	@echo "  make run             : Run standard tests (Default: RS + Cache)."
-	@echo "  make run-only T=xxx  : Run specific target."
-	@echo "  make list-scenarios  : List all problem definitions."
-	@echo "  make list-algos      : List available algorithms."
-	@echo "  make interactive     : Be the Oracle."
-	@echo "  make clean           : Cleanup."
+	@echo "  make benchmark-all     : RUN EVERYTHING (All targets x 4 configs)."
+	@echo "  make benchmark T=xxx   : Benchmark a single target."
+	@echo "  make run               : Run standard tests (Default: RS + Cache)."
+	@echo "  make run CHECKS=N      : Set random checks (Default: 3000)."
+	@echo "  make run-only T=xxx    : Run specific target."
+	@echo "  make list-scenarios    : List all problem definitions."
+	@echo "  make list-algos        : List available algorithms."
+	@echo "  make interactive       : Be the Oracle."
+	@echo "  make clean             : Cleanup."

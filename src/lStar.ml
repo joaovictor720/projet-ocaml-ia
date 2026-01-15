@@ -83,8 +83,8 @@ let build_hypothesis table alphabet oracle =
     Tests random words to see if Hypothesis(w) != Oracle(w).
     Returns 'Some w' if a discrepancy is found, 'None' otherwise.
 *)
-let find_ce dfa oracle alphabet iteration =
-  let num_tries = 3000 in
+let find_ce dfa oracle alphabet iteration max_checks =
+  let num_tries = max_checks in
   let min_len = 1 in
   let max_len = 25 in
   
@@ -181,7 +181,7 @@ let run_rivest_schapire table dfa state_reps oracle ce =
     2. Check Consistency -> Add col to E if needed.
     3. Construct Hypothesis -> Check Equivalence -> Refine if needed.
 *)
-let learn algo alphabet oracle =
+let learn algo alphabet oracle max_checks =
   let rec loop table steps iteration =
     Printf.printf "Iter %d | S=%d | E=%d\n%!"
       iteration (List.length table.s) (List.length table.e);
@@ -219,7 +219,7 @@ let learn algo alphabet oracle =
           | None -> (
               (* Phase 3: Equivalence Query *)
               let (dfa, state_reps) = build_hypothesis table alphabet oracle in
-              match find_ce dfa oracle alphabet iteration with
+              match find_ce dfa oracle alphabet iteration max_checks with
               | None -> (dfa, List.rev steps) (* Success! *)
               | Some ce ->
                   (* Refinement based on selected algorithm *)
