@@ -126,6 +126,7 @@ run-only: $(TARGET)
 interactive: $(TARGET)
 	@mkdir -p $(RSLT_DIR)
 	@./$(TARGET) -i $(CMD_ARGS)
+	$(generate_graphs)
 
 # 4. Single Target Benchmark (Runs 4 configurations for ONE target)
 benchmark: $(TARGET)
